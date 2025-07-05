@@ -9,7 +9,7 @@
 
 import struct 
 import select 
-from .mcs import *
+from .mcs import * 
 import logging 
 import time 
 import threading 
@@ -229,25 +229,16 @@ class PushReceiver:
         self.__send(req) 
 
     def __handle_iq_stanza(self, p):
-        """Handle an IqStanza message by sending the correct acknowledgement."""
-        log.debug(f"Handling IqStanza: {p}")
+        """Handle an IqStanza message by sending a simple RESULT acknowledgement."""
+        log.debug(f"XHandling IqStanza: {p}")
         if p.type == IqStanzaIqType.SET:
-            # The server expects a specific response based on the extension ID.
-            if p.extension and p.extension.id == 12:  # SelectiveAck
-                log.debug("Received SelectiveAck request, responding with StreamAck.")
-                response_iq = IqStanza()
-                response_iq.type = IqStanzaIqType.SET
-                response_iq.extension = Extension(
-                    id=13,  # StreamAck
-                    data=StreamAck().SerializeToString()
-                )
-                self.__send(response_iq)
-                log.debug(f"Sent StreamAck in response to SelectiveAck: {response_iq}")
-            else:
-                # For other IqStanzas, send a simple RESULT.
-                response_iq = IqStanza(id=p.id, type=IqStanzaIqType.RESULT)
-                self.__send(response_iq)
-                log.debug(f"Sent generic IqStanza RESULT for ID {p.id}")
+            # The server expects a simple result packet with the same ID to acknowledge receipt.
+            response_iq = IqStanza(
+                id=p.id,
+                type=IqStanzaIqType.RESULT
+            )
+            self.__send(response_iq)
+            log.debug(f"Sent IqStanza RESULT acknowledgement for ID '{p.id}': {response_iq}")
 
     def __status_check(self): 
         time_since_last_message = time.time() - self.time_last_message_received 
