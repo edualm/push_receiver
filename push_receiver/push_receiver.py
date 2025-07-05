@@ -142,7 +142,6 @@ class PushReceiver:
         self.time_last_message_received = time.time() 
         if size >= 0: 
             buf = self.__read(size) 
-            # Handle cases where the tag is not in the list
             if tag >= len(self.PACKET_BY_TAG) or not isinstance(self.PACKET_BY_TAG[tag], type):
                 log.warning(f"Unknown packet tag received: {tag}")
                 return None
@@ -233,20 +232,22 @@ class PushReceiver:
         """Handle an IqStanza message by sending the correct acknowledgement."""
         log.debug(f"Handling IqStanza: {p}")
         if p.type == IqStanzaIqType.SET:
-            # The server expects a simple result packet with the same ID.
-            response_iq = IqStanza(id=p.id, type=IqStanzaIqType.RESULT)
-            
-            # If the server sent a SelectiveAck request (ID 12), we must respond
-            # with an empty SelectiveAck payload to confirm receipt.
-            if p.extension and p.extension.id == 12:
+            # The server expects a specific response based on the extension ID.
+            if p.extension and p.extension.id == 12:  # SelectiveAck
+                log.debug("Received SelectiveAck request, responding with StreamAck.")
+                response_iq = IqStanza()
+                response_iq.type = IqStanzaIqType.SET
                 response_iq.extension = Extension(
-                    id=12,  # SelectiveAck
-                    data=SelectiveAck().SerializeToString()
+                    id=13,  # StreamAck
+                    data=StreamAck().SerializeToString()
                 )
-                log.debug(f"Responding to SelectiveAck request with ID {p.id}")
-            
-            self.__send(response_iq)
-            log.debug(f"Sent IqStanza RESULT acknowledgement for ID {p.id}: {response_iq}")
+                self.__send(response_iq)
+                log.debug(f"Sent StreamAck in response to SelectiveAck: {response_iq}")
+            else:
+                # For other IqStanzas, send a simple RESULT.
+                response_iq = IqStanza(id=p.id, type=IqStanzaIqType.RESULT)
+                self.__send(response_iq)
+                log.debug(f"Sent generic IqStanza RESULT for ID {p.id}")
 
     def __status_check(self): 
         time_since_last_message = time.time() - self.time_last_message_received 
