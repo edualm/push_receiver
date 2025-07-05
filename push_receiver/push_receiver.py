@@ -9,7 +9,7 @@
 
 import struct 
 import select 
-from .mcs import * 
+from .mcs import *
 import logging 
 import time 
 import threading 
@@ -226,15 +226,13 @@ class PushReceiver:
         self.__send(req) 
 
     def __handle_iq_stanza(self, p):
-        """Handle an IqStanza message by sending a RESULT acknowledgement."""
+        """Handle an IqStanza message by sending a minimalist RESULT acknowledgement."""
         log.debug(f"Handling IqStanza: {p}")
         if p.type == IqStanzaIqType.SET:
+            # The server expects a simple result packet with the same ID.
+            # Do not include the extension or other fields from the request.
             response_iq = IqStanza(
                 id=p.id,
-                from_=p.to,
-                to=p.from_,
-                rmq_id=p.rmq_id,
-                extension=p.extension,
                 type=IqStanzaIqType.RESULT
             )
             self.__send(response_iq)
