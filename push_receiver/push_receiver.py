@@ -142,6 +142,10 @@ class PushReceiver:
         self.time_last_message_received = time.time() 
         if size >= 0: 
             buf = self.__read(size) 
+            # Handle cases where the tag is not in the list
+            if tag >= len(self.PACKET_BY_TAG) or not isinstance(self.PACKET_BY_TAG[tag], type):
+                log.warning(f"Unknown packet tag received: {tag}")
+                return None
             payload = self.PACKET_BY_TAG[tag]() 
             payload.parse(buf) 
             log.debug(f'Receive payload:\n{payload}') 
@@ -226,15 +230,21 @@ class PushReceiver:
         self.__send(req) 
 
     def __handle_iq_stanza(self, p):
-        """Handle an IqStanza message by sending a minimalist RESULT acknowledgement."""
+        """Handle an IqStanza message by sending the correct acknowledgement."""
         log.debug(f"Handling IqStanza: {p}")
         if p.type == IqStanzaIqType.SET:
             # The server expects a simple result packet with the same ID.
-            # Do not include the extension or other fields from the request.
-            response_iq = IqStanza(
-                id=p.id,
-                type=IqStanzaIqType.RESULT
-            )
+            response_iq = IqStanza(id=p.id, type=IqStanzaIqType.RESULT)
+            
+            # If the server sent a SelectiveAck request (ID 12), we must respond
+            # with an empty SelectiveAck payload to confirm receipt.
+            if p.extension and p.extension.id == 12:
+                response_iq.extension = Extension(
+                    id=12,  # SelectiveAck
+                    data=SelectiveAck().SerializeToString()
+                )
+                log.debug(f"Responding to SelectiveAck request with ID {p.id}")
+            
             self.__send(response_iq)
             log.debug(f"Sent IqStanza RESULT acknowledgement for ID {p.id}: {response_iq}")
 
