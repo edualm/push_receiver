@@ -68,13 +68,17 @@ class PushReceiver:
         self.time_last_message_received = time.time() 
 
     def __del__(self): 
-        self.checkin_thread.cancel() 
+        if hasattr(self, 'checkin_thread') and self.checkin_thread:
+            self.checkin_thread.cancel() 
         self.__close_socket() 
 
     def __read(self, size): 
         buf = b'' 
         while len(buf) < size: 
-            buf += self.socket.recv(size - len(buf)) 
+            chunk = self.socket.recv(size - len(buf))
+            if not chunk:
+                raise ConnectionResetError("Socket closed during read")
+            buf += chunk
         return buf 
 
     def __read_varint32(self): 
@@ -90,12 +94,14 @@ class PushReceiver:
 
     def __encode_varint32(self, x): 
         res = bytearray([]) 
-        while x != 0: 
+        while x > 0: 
             b = (x & 0x7F) 
             x >>= 7 
-            if x != 0: 
+            if x > 0: 
                 b |= 0x80 
-            res.append(b) 
+            res.append(b)
+        if not res:
+            res.append(0)
         return bytes(res) 
 
     def __send(self, packet): 
@@ -117,7 +123,7 @@ class PushReceiver:
             if len(readable) == 0: 
                 log.debug("Select read timeout") 
                 return None 
-        except select.error as e: 
+        except (select.error, ValueError) as e: 
             log.debug(f"Select error: {e}") 
             return None 
         try: 
@@ -129,7 +135,7 @@ class PushReceiver:
             else: 
                 tag, = struct.unpack("B", self.__read(1)) 
             size = self.__read_varint32() 
-        except OSError as e: 
+        except (OSError, ConnectionResetError) as e: 
             log.debug(f"Read error: {e}") 
             return None 
         log.debug("Received message with tag {} ({}), size {}".format(tag, self.PACKET_BY_TAG[tag], size)) 
@@ -163,13 +169,13 @@ class PushReceiver:
         req = LoginRequest() 
         req.adaptive_heartbeat = False 
         req.auth_service = 2 
-        req.auth_token = self.credentials["gcm"]["securityToken"] 
+        req.auth_token = str(self.credentials["gcm"]["securityToken"])
         req.id = "chrome-63.0.3234.0" 
         req.domain = "mcs.android.com" 
         req.device_id = "android-%x" % int(android_id) 
         req.network_type = 1 
-        req.resource = android_id 
-        req.user = android_id 
+        req.resource = str(android_id)
+        req.user = str(android_id)
         req.use_rmq2 = True 
         setting = Setting() 
         setting.name = "new_vc" 
@@ -193,8 +199,9 @@ class PushReceiver:
 
     def __close_socket(self): 
         try: 
-            self.socket.shutdown(2) 
-            self.socket.close() 
+            if hasattr(self, 'socket') and self.socket:
+                self.socket.shutdown(socket.SHUT_RDWR) 
+                self.socket.close() 
         except OSError as e: 
             log.debug(f"Unable to close connection {e}") 
 
@@ -222,15 +229,16 @@ class PushReceiver:
         """Handle an IqStanza message by sending a RESULT acknowledgement."""
         log.debug(f"Handling IqStanza: {p}")
         if p.type == IqStanzaIqType.SET:
-            response_iq = IqStanza()
-            response_iq.type = IqStanzaIqType.RESULT
-            response_iq.id = p.id
-            # MODIFIED: Copy the extension from the request to the response
-            # This is crucial for the server to accept the acknowledgement.
-            if p.extension:
-                response_iq.extension = p.extension
+            response_iq = IqStanza(
+                id=p.id,
+                from_=p.to,
+                to=p.from_,
+                rmq_id=p.rmq_id,
+                extension=p.extension,
+                type=IqStanzaIqType.RESULT
+            )
             self.__send(response_iq)
-            log.debug(f"Sent IqStanza RESULT acknowledgement for ID {p.id}")
+            log.debug(f"Sent IqStanza RESULT acknowledgement for ID {p.id}: {response_iq}")
 
     def __status_check(self): 
         time_since_last_message = time.time() - self.time_last_message_received 
@@ -264,6 +272,6 @@ class PushReceiver:
                     self.__reset() 
                 else: 
                     log.debug(f'Unexpected message type {type(p)}.') 
-            except ConnectionResetError: 
+            except (ConnectionResetError, BrokenPipeError): 
                 log.debug("Connection Reset: Reconnecting") 
-                self.__login() 
+                self.__reset()
