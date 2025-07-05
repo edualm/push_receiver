@@ -9,7 +9,7 @@
 
 import struct 
 import select 
-from .mcs import *
+from .mcs import * 
 import logging 
 import time 
 import threading 
@@ -76,10 +76,6 @@ class PushReceiver:
         while len(buf) < size: 
             buf += self.socket.recv(size - len(buf)) 
         return buf 
-
-    # protobuf variable length integers are encoded in base 128 
-    # each byte contains 7 bits of the integer and the msb is set if there's 
-    # more. pretty simple to implement 
 
     def __read_varint32(self): 
         res = 0 
@@ -229,6 +225,10 @@ class PushReceiver:
             response_iq = IqStanza()
             response_iq.type = IqStanzaIqType.RESULT
             response_iq.id = p.id
+            # MODIFIED: Copy the extension from the request to the response
+            # This is crucial for the server to accept the acknowledgement.
+            if p.extension:
+                response_iq.extension = p.extension
             self.__send(response_iq)
             log.debug(f"Sent IqStanza RESULT acknowledgement for ID {p.id}")
 
