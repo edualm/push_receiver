@@ -9,7 +9,8 @@
 
 import struct 
 import select 
-from .mcs import * import logging 
+from .mcs import *
+import logging 
 import time 
 import threading 
 import socket 
